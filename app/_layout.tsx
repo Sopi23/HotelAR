@@ -1,24 +1,31 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+// HOTELAR/app/_layout.tsx 
+
 import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import 'react-native-reanimated';
-
-import { useColorScheme } from '@/hooks/use-color-scheme';
-
-export const unstable_settings = {
-  anchor: '(tabs)',
-};
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
-
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
+    <Stack>
+      {/* 1. WELCOME screen (Must be the first one listed) */}
+      <Stack.Screen 
+        name="welcome" 
+        options={{ 
+          headerShown: false, 
+        }} 
+      />
+      
+      {/* 2. THE MISSING LINK: LOGIN screen (Must be listed explicitly) */}
+      <Stack.Screen 
+        name="login" 
+        options={{ 
+          headerShown: false, 
+        }} 
+      />
+      
+      {/* 3. The main tabs group */}
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      
+      {/* 4. Other screens */}
+      <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+    </Stack>
   );
 }
