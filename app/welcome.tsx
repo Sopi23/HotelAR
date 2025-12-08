@@ -3,13 +3,13 @@
 import { router } from 'expo-router';
 import React from 'react';
 import {
-    Image,
-    ImageBackground,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Image,
+  ImageBackground,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 // --- 1. IMPORT ASSETS ---
