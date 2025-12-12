@@ -74,7 +74,7 @@ const WelcomeScreen = () => {
 
             <View>
 
-              <Text style={styles.titleTextSmall}>AR</Text>
+              <Text style={styles.titleTextLarge}>AR</Text>
 
               <Text style={styles.titleTextLarge}>HOTELS</Text>
 

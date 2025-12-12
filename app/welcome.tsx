@@ -39,7 +39,7 @@ const WelcomeScreen = () => {
             <Image source={LogoImage} style={styles.logo} />
             
             <View>
-              <Text style={styles.titleTextSmall}>AR</Text>
+              <Text style={styles.titleTextLarge}>AR</Text>
               <Text style={styles.titleTextLarge}>HOTELS</Text>
             </View>
           </View>
