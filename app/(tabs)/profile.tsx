@@ -1,383 +1,712 @@
-// HOTELAR/app/(tabs)/profile.tsx
-
-import { MaterialIcons } from '@expo/vector-icons';
-import React from 'react';
+import { MaterialIcons } from "@expo/vector-icons";
+import React, { useEffect, useState } from "react";
 import {
-    Alert,
-    Image,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-} from 'react-native';
-// import * as ImagePicker from 'expo-image-picker'; // Required for actual image upload
+  Alert,
+  Image,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  ActivityIndicator,
+  TextInput,
+  Modal,
+  TouchableWithoutFeedback,
+  KeyboardAvoidingView,
+  Platform,
+} from "react-native";
+import * as ImagePicker from 'expo-image-picker';
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { doc, updateDoc, getDoc } from "firebase/firestore";
 
-const PURPLE_PRIMARY = '#5C2D91';
-const LIGHT_TEAL = '#40D2B8';
+import { auth, db, storage } from "../../firebaseConfig";
 
-// --- Dummy Data (Simulating dynamic customer data) ---
-const CUSTOMER_DATA = {
-    name: "Johni",
-    memberStatus: "Gold Member",
-    profileImageUri: "https://picsum.photos/id/1011/200/200", // Placeholder Image
-    contact: {
-        email: "joni@gmail.com",
-        phone: "+94 520741039",
-        address: "Main street No-1, Colombo",
-    },
-    memberSince: "November, 2025",
-    preferences: [
-        { key: "Room Temperature", value: "68 F" },
-        { key: "Pillow Type", value: "Firm" },
-    ],
-    loyalty: {
-        totalStays: 24,
-        points: 1850,
-        rewards: 250, // in dollars
-    }
-};
-// --- END Dummy Data ---
+const PURPLE_PRIMARY = "#5C2D91";
+const LIGHT_TEAL = "#40D2B8";
 
 const ProfileScreen = () => {
+  const [userData, setUserData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [showEditForm, setShowEditForm] = useState(false); // Toggle for edit form
+  const [editing, setEditing] = useState(false); // For individual field modal
+  const [editField, setEditField] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [uploadingImage, setUploadingImage] = useState(false);
 
-    const handleEdit = (field: string) => {
-        Alert.alert("Edit Feature", `Open modal to edit ${field}.`);
-        // In a real app, this would open a modal or navigate to an edit screen.
+  // Form state
+  const [formData, setFormData] = useState({
+    username: "",
+    email: "",
+    phone: "",
+    address: "",
+  });
+
+  // 🔹 Fetch user data from Firestore
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      try {
+        const currentUser = auth.currentUser;
+
+        if (!currentUser) {
+          Alert.alert("Error", "User not logged in");
+          return;
+        }
+
+        const docRef = doc(db, "users", currentUser.uid);
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setUserData(data);
+          setFormData({
+            username: data.username || "",
+            email: data.email || "",
+            phone: data.phone || "",
+            address: data.address || "",
+          });
+        } else {
+          Alert.alert("Error", "User profile not found");
+        }
+      } catch (error) {
+        console.error("Profile fetch error:", error);
+        Alert.alert("Error", "Failed to load profile");
+      } finally {
+        setLoading(false);
+      }
     };
 
-    const handleImageUpload = () => {
-        Alert.alert("Image Upload", "Simulating opening camera roll to change profile image.");
-        // In a real app:
-        // const result = await ImagePicker.launchImageLibraryAsync({...});
-        // if (!result.canceled) { /* update state */ }
-    };
+    fetchUserProfile();
+  }, []);
 
-    // Component for Contact and Member Info
-    const ContactInfoRow = ({ icon, label, value }: { icon: any, label: string, value: string }) => (
-        <View style={styles.infoRowContainer}>
-            <View style={styles.infoRow}>
-                <MaterialIcons name={icon} size={24} color={PURPLE_PRIMARY} />
-                <View style={styles.infoTextWrapper}>
-                    <Text style={styles.infoLabel}>{label}</Text>
-                    <Text style={styles.infoValue}>{value}</Text>
-                </View>
-            </View>
-        </View>
-    );
+  const handleEdit = (field: string, currentValue: string) => {
+    setEditField(field);
+    setEditValue(currentValue);
+    setEditing(true);
+  };
 
-    // Component for Loyalty Stats
-    const StatBox = ({ value, label }: { value: string | number, label: string }) => (
-        <View style={styles.statBox}>
-            <Text style={styles.statValue}>{value}</Text>
-            <Text style={styles.statLabel}>{label}</Text>
-        </View>
-    );
+  const handleSave = async () => {
+    if (!editField || !auth.currentUser) return;
 
+    try {
+      const updatedData = { [editField]: editValue };
+      const userRef = doc(db, "users", auth.currentUser.uid);
+      
+      await updateDoc(userRef, updatedData);
+      
+      // Update local state
+      setUserData((prev: any) => ({ ...prev, [editField]: editValue }));
+      setFormData((prev) => ({ ...prev, [editField]: editValue }));
+      
+      Alert.alert("Success", `${editField} updated successfully`);
+      setEditing(false);
+    } catch (error) {
+      console.error("Update error:", error);
+      Alert.alert("Error", "Failed to update profile");
+    }
+  };
+
+  const handleImageUpload = async () => {
+    try {
+      // Request permissions
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission required', 'Sorry, we need camera roll permissions to upload images.');
+        return;
+      }
+
+      // Pick image
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setUploadingImage(true);
+        
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          Alert.alert("Error", "User not logged in");
+          return;
+        }
+
+        // Upload image to Firebase Storage
+        const imageUri = result.assets[0].uri;
+        const response = await fetch(imageUri);
+        const blob = await response.blob();
+        
+        const storageRef = ref(storage, `profile-pictures/${currentUser.uid}`);
+        await uploadBytes(storageRef, blob);
+        
+        // Get download URL
+        const downloadURL = await getDownloadURL(storageRef);
+        
+        // Update Firestore
+        const userRef = doc(db, "users", currentUser.uid);
+        await updateDoc(userRef, { profileImage: downloadURL });
+        
+        // Update local state
+        setUserData((prev: any) => ({ ...prev, profileImage: downloadURL }));
+        
+        Alert.alert("Success", "Profile image updated successfully");
+      }
+    } catch (error) {
+      console.error("Image upload error:", error);
+      Alert.alert("Error", "Failed to upload image");
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const handleSaveAll = async () => {
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        Alert.alert("Error", "User not logged in");
+        return;
+      }
+
+      const userRef = doc(db, "users", currentUser.uid);
+      await updateDoc(userRef, formData);
+      
+      // Update local state
+      setUserData((prev: any) => ({ ...prev, ...formData }));
+      
+      Alert.alert("Success", "Profile updated successfully");
+      setShowEditForm(false); // Hide form after saving
+    } catch (error) {
+      console.error("Update all error:", error);
+      Alert.alert("Error", "Failed to update profile");
+    }
+  };
+
+  const handleCancelEdit = () => {
+    // Reset form to original user data
+    if (userData) {
+      setFormData({
+        username: userData.username || "",
+        email: userData.email || "",
+        phone: userData.phone || "",
+        address: userData.address || "",
+      });
+    }
+    setShowEditForm(false);
+  };
+
+  if (loading) {
     return (
-        <SafeAreaView style={styles.safeArea}>
-            <ScrollView contentContainerStyle={styles.scrollContent}>
-                
-                {/* Top Purple Background Area */}
-                <View style={styles.topBackground} />
-
-                {/* Profile Card */}
-                <View style={styles.profileCard}>
-                    
-                    <TouchableOpacity onPress={handleImageUpload} style={styles.imageContainer}>
-                        <Image source={{ uri: CUSTOMER_DATA.profileImageUri }} style={styles.profileImage} />
-                        {/* Optional: Add an icon overlay for editing */}
-                        <MaterialIcons name="camera-alt" size={24} color="white" style={styles.editIconOverlay} />
-                    </TouchableOpacity>
-
-                    <View style={styles.profileDetails}>
-                        <Text style={styles.userName}>{CUSTOMER_DATA.name}</Text>
-                        <View style={styles.memberTag}>
-                            <MaterialIcons name="military-tech" size={16} color="black" />
-                            <Text style={styles.memberText}>{CUSTOMER_DATA.memberStatus}</Text>
-                        </View>
-                    </View>
-
-                    <TouchableOpacity 
-                        style={styles.editProfileButton} 
-                        onPress={() => handleEdit('Profile')}
-                    >
-                        <Text style={styles.editProfileButtonText}>Edit Profile</Text>
-                    </TouchableOpacity>
-                </View>
-
-                {/* Contact Information */}
-                <View style={styles.sectionContainer}>
-                    <Text style={styles.sectionTitle}>Contact Information</Text>
-                    <View style={styles.contactCard}>
-                        <ContactInfoRow 
-                            icon="email" 
-                            label="Email" 
-                            value={CUSTOMER_DATA.contact.email} 
-                        />
-                        <ContactInfoRow 
-                            icon="phone" 
-                            label="Phone" 
-                            value={CUSTOMER_DATA.contact.phone} 
-                        />
-                        <ContactInfoRow 
-                            icon="location-on" 
-                            label="Address" 
-                            value={CUSTOMER_DATA.contact.address} 
-                        />
-                        <ContactInfoRow 
-                            icon="date-range" 
-                            label="Member Since" 
-                            value={CUSTOMER_DATA.memberSince} 
-                        />
-                    </View>
-                </View>
-
-                {/* Preferences */}
-                <View style={styles.sectionContainer}>
-                    <Text style={styles.sectionTitle}>Preferences</Text>
-                    <View style={styles.preferencesContainer}>
-                        {CUSTOMER_DATA.preferences.map((pref, index) => (
-                            <View key={index} style={styles.preferenceRow}>
-                                <Text style={styles.preferenceKey}>{pref.key}</Text>
-                                <Text style={styles.preferenceValue}>{pref.value}</Text>
-                                <TouchableOpacity 
-                                    onPress={() => handleEdit(pref.key)}
-                                    style={styles.preferenceEditButton}
-                                >
-                                    <Text style={styles.preferenceEditText}>Edit</Text>
-                                </TouchableOpacity>
-                            </View>
-                        ))}
-                    </View>
-                </View>
-                
-                {/* Loyalty Stats */}
-                <View style={styles.statsContainer}>
-                    <StatBox 
-                        value={CUSTOMER_DATA.loyalty.totalStays} 
-                        label="Total Stays" 
-                    />
-                    <StatBox 
-                        value={CUSTOMER_DATA.loyalty.points.toLocaleString()} 
-                        label="Points" 
-                    />
-                    <StatBox 
-                        value={`$${CUSTOMER_DATA.loyalty.rewards.toFixed(0)}`} 
-                        label="Rewards" 
-                    />
-                </View>
-
-            <View style={{ height: 50 }} /> {/* Spacer for tab bar */}
-            </ScrollView>
-        </SafeAreaView>
+      <SafeAreaView style={styles.safeArea}>
+        <ActivityIndicator size="large" color={PURPLE_PRIMARY} style={{ marginTop: 50 }} />
+      </SafeAreaView>
     );
+  }
+
+  if (!userData) return null;
+
+  // 🔹 Format member since date
+  const memberSince = userData.memberSince?.toDate
+    ? userData.memberSince.toDate().toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+      })
+    : "N/A";
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        {/* Purple Header */}
+        <View style={styles.topBackground} />
+
+        {/* Profile Card */}
+        <View style={styles.profileCard}>
+          <TouchableOpacity 
+            onPress={handleImageUpload} 
+            style={styles.imageContainer}
+            disabled={uploadingImage}
+          >
+            {uploadingImage ? (
+              <View style={[styles.profileImage, styles.uploadingContainer]}>
+                <ActivityIndicator size="small" color="white" />
+              </View>
+            ) : (
+              <Image
+                source={{
+                  uri: userData.profileImage || "https://picsum.photos/200",
+                }}
+                style={styles.profileImage}
+              />
+            )}
+            <MaterialIcons
+              name="camera-alt"
+              size={22}
+              color="white"
+              style={styles.editIconOverlay}
+            />
+          </TouchableOpacity>
+
+          <View style={styles.profileDetails}>
+            <Text style={styles.userName}>{userData.username}</Text>
+
+            <View style={styles.memberTag}>
+              <MaterialIcons name="military-tech" size={16} color="black" />
+              <Text style={styles.memberText}>Member</Text>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            style={styles.editProfileButton}
+            onPress={() => setShowEditForm(true)}
+          >
+            <Text style={styles.editProfileButtonText}>
+              {showEditForm ? "View Profile" : "Edit Profile"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Edit Form - Only shows when edit button is clicked */}
+        {showEditForm ? (
+          <View style={styles.sectionContainer}>
+            <Text style={styles.sectionTitle}>Edit Profile Information</Text>
+
+            <View style={styles.formCard}>
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Username</Text>
+                <TextInput
+                  style={styles.input}
+                  value={formData.username}
+                  onChangeText={(text) => setFormData(prev => ({ ...prev, username: text }))}
+                  placeholder="Enter username"
+                />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Email</Text>
+                <TextInput
+                  style={styles.input}
+                  value={formData.email}
+                  onChangeText={(text) => setFormData(prev => ({ ...prev, email: text }))}
+                  placeholder="Enter email"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Phone</Text>
+                <TextInput
+                  style={styles.input}
+                  value={formData.phone}
+                  onChangeText={(text) => setFormData(prev => ({ ...prev, phone: text }))}
+                  placeholder="Enter phone number"
+                  keyboardType="phone-pad"
+                />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Address</Text>
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  value={formData.address}
+                  onChangeText={(text) => setFormData(prev => ({ ...prev, address: text }))}
+                  placeholder="Enter address"
+                  multiline
+                  numberOfLines={3}
+                />
+              </View>
+
+              <View style={styles.formButtons}>
+                <TouchableOpacity
+                  style={[styles.formButton, styles.cancelButton]}
+                  onPress={handleCancelEdit}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[styles.formButton, styles.saveAllButton]}
+                  onPress={handleSaveAll}
+                >
+                  <Text style={styles.saveAllButtonText}>Save Changes</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        ) : (
+          /* Contact Info (Read-only display) - Shows when not editing */
+          <View style={styles.sectionContainer}>
+            <Text style={styles.sectionTitle}>Contact Information</Text>
+
+            <View style={styles.contactCard}>
+              <InfoRow 
+                icon="email" 
+                label="Email" 
+                value={userData.email} 
+                onEdit={() => handleEdit("email", userData.email)}
+              />
+              <InfoRow 
+                icon="phone" 
+                label="Phone" 
+                value={userData.phone} 
+                onEdit={() => handleEdit("phone", userData.phone)}
+              />
+              <InfoRow 
+                icon="location-on" 
+                label="Address" 
+                value={userData.address} 
+                onEdit={() => handleEdit("address", userData.address)}
+              />
+              <InfoRow 
+                icon="date-range" 
+                label="Member Since" 
+                value={memberSince}
+              />
+            </View>
+          </View>
+        )}
+
+        <View style={{ height: 50 }} />
+      </ScrollView>
+
+      {/* Edit Modal for individual fields */}
+      <Modal
+        visible={editing}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setEditing(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setEditing(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <KeyboardAvoidingView 
+                behavior={Platform.OS === "ios" ? "padding" : "height"}
+                style={styles.modalContent}
+              >
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>
+                    Edit {editField ? editField.charAt(0).toUpperCase() + editField.slice(1) : ""}
+                  </Text>
+                  <TouchableOpacity onPress={() => setEditing(false)}>
+                    <MaterialIcons name="close" size={24} color="#666" />
+                  </TouchableOpacity>
+                </View>
+
+                <TextInput
+                  style={styles.modalInput}
+                  value={editValue}
+                  onChangeText={setEditValue}
+                  placeholder={editField ? `Enter new ${editField}` : "Enter value"}
+                  autoFocus
+                />
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.modalCancelButton]}
+                    onPress={() => setEditing(false)}
+                  >
+                    <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.modalSaveButton]}
+                    onPress={handleSave}
+                  >
+                    <Text style={styles.modalSaveButtonText}>Save</Text>
+                  </TouchableOpacity>
+                </View>
+              </KeyboardAvoidingView>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+    </SafeAreaView>
+  );
 };
 
 export default ProfileScreen;
 
+/* -------------------- */
+/* Reusable Info Row */
+/* -------------------- */
+const InfoRow = ({
+  icon,
+  label,
+  value,
+  onEdit,
+}: {
+  icon: any;
+  label: string;
+  value: string;
+  onEdit?: () => void;
+}) => (
+  <TouchableOpacity 
+    style={styles.infoRowContainer} 
+    onPress={onEdit}
+    disabled={!onEdit}
+  >
+    <View style={styles.infoRow}>
+      <MaterialIcons name={icon} size={24} color={PURPLE_PRIMARY} />
+      <View style={styles.infoTextWrapper}>
+        <Text style={styles.infoLabel}>{label}</Text>
+        <Text style={styles.infoValue}>{value}</Text>
+      </View>
+      {onEdit && (
+        <MaterialIcons 
+          name="edit" 
+          size={20} 
+          color="#999" 
+          style={styles.editIcon}
+        />
+      )}
+    </View>
+  </TouchableOpacity>
+);
+
+/* -------------------- */
+/* Styles */
+/* -------------------- */
 const styles = StyleSheet.create({
-    safeArea: {
-        flex: 1,
-        backgroundColor: '#F7F7F7',
-    },
-    scrollContent: {
-        flexGrow: 1,
-        paddingBottom: 20,
-    },
-    topBackground: {
-        backgroundColor: PURPLE_PRIMARY,
-        height: 150,
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        borderBottomLeftRadius: 30,
-        borderBottomRightRadius: 30,
-    },
-    profileCard: {
-        backgroundColor: '#F3EFFF', // Light background for the profile header area
-        borderRadius: 15,
-        marginHorizontal: 20,
-        marginTop: 50, // Positioned below the top background area
-        padding: 20,
-        flexDirection: 'row',
-        alignItems: 'center',
-        elevation: 5,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 3,
-    },
-    imageContainer: {
-        marginRight: 15,
-        position: 'relative',
-    },
-    profileImage: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
-        borderWidth: 3,
-        borderColor: 'white',
-    },
-    editIconOverlay: {
-        position: 'absolute',
-        bottom: 0,
-        right: 0,
-        backgroundColor: PURPLE_PRIMARY,
-        borderRadius: 15,
-        padding: 4,
-        borderWidth: 1,
-        borderColor: 'white',
-    },
-    profileDetails: {
-        flex: 1,
-        justifyContent: 'center',
-    },
-    userName: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#333',
-    },
-    memberTag: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#FFD700', // Gold color
-        borderRadius: 15,
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        marginTop: 5,
-        alignSelf: 'flex-start',
-    },
-    memberText: {
-        fontSize: 14,
-        fontWeight: '600',
-        marginLeft: 5,
-    },
-    editProfileButton: {
-        backgroundColor: LIGHT_TEAL,
-        borderRadius: 20,
-        paddingHorizontal: 15,
-        paddingVertical: 8,
-        position: 'absolute', // Positioned absolutely within the card
-        bottom: 10,
-        right: 20,
-    },
-    editProfileButtonText: {
-        color: 'white',
-        fontWeight: 'bold',
-        fontSize: 14,
-    },
-    sectionContainer: {
-        paddingHorizontal: 20,
-        marginTop: 25,
-    },
-    sectionTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: '#333',
-        marginBottom: 10,
-    },
-    contactCard: {
-        backgroundColor: 'white',
-        borderRadius: 10,
-        elevation: 2,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-        overflow: 'hidden', // Ensures borders look clean
-    },
-    infoRowContainer: {
-        borderBottomWidth: 1,
-        borderBottomColor: '#F0F0F0',
-    },
-    infoRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 15,
-        paddingHorizontal: 15,
-    },
-    infoTextWrapper: {
-        marginLeft: 15,
-    },
-    infoLabel: {
-        fontSize: 12,
-        color: '#999',
-    },
-    infoValue: {
-        fontSize: 16,
-        color: '#333',
-        fontWeight: '500',
-    },
-    preferencesContainer: {
-        backgroundColor: 'white',
-        borderRadius: 10,
-        paddingHorizontal: 15,
-        paddingVertical: 10,
-        elevation: 2,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-    },
-    preferenceRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingVertical: 10,
-        borderBottomWidth: 1,
-        borderBottomColor: '#F0F0F0',
-    },
-    preferenceKey: {
-        fontSize: 16,
-        color: '#333',
-        flex: 1,
-    },
-    preferenceValue: {
-        fontSize: 16,
-        color: '#666',
-        fontWeight: '500',
-        marginRight: 10,
-    },
-    preferenceEditButton: {
-        paddingHorizontal: 10,
-        paddingVertical: 5,
-        borderRadius: 5,
-        backgroundColor: '#EBE0FF', // Lighter shade of purple
-    },
-    preferenceEditText: {
-        color: PURPLE_PRIMARY,
-        fontSize: 14,
-        fontWeight: 'bold',
-    },
-    statsContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-around',
-        paddingHorizontal: 20,
-        marginTop: 25,
-    },
-    statBox: {
-        backgroundColor: 'white',
-        width: '30%',
-        borderRadius: 10,
-        padding: 15,
-        alignItems: 'center',
-        elevation: 3,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 3,
-    },
-    statValue: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: PURPLE_PRIMARY,
-    },
-    statLabel: {
-        fontSize: 14,
-        color: '#666',
-        textAlign: 'center',
-    },
+  safeArea: { flex: 1, backgroundColor: "#F7F7F7" },
+  scrollContent: { paddingBottom: 20 },
+
+  topBackground: {
+    backgroundColor: PURPLE_PRIMARY,
+    height: 150,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+  },
+
+  profileCard: {
+    backgroundColor: "#F3EFFF",
+    borderRadius: 15,
+    marginHorizontal: 20,
+    marginTop: 50,
+    padding: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    elevation: 5,
+  },
+
+  imageContainer: { marginRight: 15 },
+  profileImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 3,
+    borderColor: "white",
+  },
+
+  uploadingContainer: {
+    backgroundColor: PURPLE_PRIMARY,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  editIconOverlay: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    backgroundColor: PURPLE_PRIMARY,
+    borderRadius: 12,
+    padding: 4,
+  },
+
+  profileDetails: { flex: 1 },
+  userName: { fontSize: 24, fontWeight: "bold", color: "#333" },
+
+  memberTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFD700",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 6,
+    alignSelf: "flex-start",
+  },
+
+  memberText: { marginLeft: 5, fontWeight: "600" },
+
+  editProfileButton: {
+    backgroundColor: LIGHT_TEAL,
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 20,
+    position: "absolute",
+    right: 20,
+    bottom: 10,
+  },
+
+  editProfileButtonText: { color: "white", fontWeight: "bold" },
+
+  sectionContainer: { paddingHorizontal: 20, marginTop: 25 },
+  sectionTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 10 },
+
+  contactCard: {
+    backgroundColor: "white",
+    borderRadius: 10,
+    overflow: "hidden",
+  },
+
+  infoRowContainer: {
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
+  },
+
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 15,
+  },
+
+  infoTextWrapper: { 
+    flex: 1,
+    marginLeft: 15 
+  },
+  infoLabel: { fontSize: 12, color: "#999" },
+  infoValue: { fontSize: 16, fontWeight: "500" },
+  editIcon: { marginLeft: 10 },
+
+  // Form Styles
+  formCard: {
+    backgroundColor: "white",
+    borderRadius: 10,
+    padding: 20,
+    marginBottom: 20,
+  },
+
+  formGroup: {
+    marginBottom: 15,
+  },
+
+  formLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 5,
+  },
+
+  input: {
+    backgroundColor: "#F7F7F7",
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: "#E0E0E0",
+  },
+
+  textArea: {
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+
+  formButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+
+  formButton: {
+    flex: 1,
+    padding: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginHorizontal: 5,
+  },
+
+  cancelButton: {
+    backgroundColor: '#F0F0F0',
+  },
+
+  saveAllButton: {
+    backgroundColor: PURPLE_PRIMARY,
+  },
+
+  cancelButtonText: {
+    color: '#666',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+
+  saveAllButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 20,
+    width: '100%',
+    maxWidth: 400,
+  },
+
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+
+  modalInput: {
+    backgroundColor: '#F7F7F7',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    marginBottom: 20,
+  },
+
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+
+  modalButton: {
+    flex: 1,
+    padding: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginHorizontal: 5,
+  },
+
+  modalCancelButton: {
+    backgroundColor: '#F0F0F0',
+  },
+
+  modalSaveButton: {
+    backgroundColor: PURPLE_PRIMARY,
+  },
+
+  modalCancelButtonText: {
+    color: '#666',
+    fontWeight: '600',
+  },
+
+  modalSaveButtonText: {
+    color: 'white',
+    fontWeight: '600',
+  },
 });

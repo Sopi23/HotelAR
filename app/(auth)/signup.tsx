@@ -1,9 +1,11 @@
-// HOTELAR/app/(auth)/signup.js - SECURE FIREBASE AUTH VERSION
-
-import { router } from 'expo-router';
-import React, { useState } from 'react';
+import { router } from "expo-router";
+import React, { useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -12,237 +14,327 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-} from 'react-native';
+} from "react-native";
 
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 
-// 1. IMPORT FIREBASE AUTH COMPONENTS
-import { createUserWithEmailAndPassword } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
-// Ensure correct paths to auth and db
-import { auth, db } from "../../firebaseConfig";
+// 🔐 Firebase
+import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { auth, db, storage } from "../../firebaseConfig";
 
+// 📸 Image Picker
+import * as ImagePicker from "expo-image-picker";
 
 const SignupScreen = () => {
-  // IMPORTANT: Firebase Auth requires EMAIL as the identifier
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [email, setEmail] = useState('');
-  const [rememberMe, setRememberMe] = useState(false); // Not used by Firebase Auth, but kept for future local storage
+  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
+  const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
+  const [image, setImage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  // Back button
   const handleGoBack = () => {
     router.back();
   };
 
-  // --------------------------
-  // SECURE FIREBASE AUTH SIGN UP
-  // --------------------------
-  const handleSignUp = async () => {
-    if (!email || !password || !username) {
-      Alert.alert("Input Error", "Please fill in username, email, and password.");
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission Denied", "Allow access to your photos to upload profile picture.");
       return;
     }
 
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.5,
+    });
+
+    if (!result.canceled && result.assets?.[0]?.uri) {
+      setImage(result.assets[0].uri);
+    }
+  };
+
+  const handleSignUp = async () => {
+    if (!username || !email || !phone || !address || !password) {
+      Alert.alert("Input Error", "Please fill in all fields.");
+      return;
+    }
+
+    setLoading(true);
+    console.log("🚀 Starting Signup Process...");
+
     try {
-      // 1. CRITICAL: Create user account securely (password is hashed)
+      // 1. Create auth user
+      console.log("Step 1: Creating Auth User...");
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
+      console.log("✅ Auth User Created:", user.uid);
 
-      // 2. OPTIONAL: Save supplementary data (like username) to Firestore 
-      //    using the secure Firebase User ID (user.uid) as the document ID.
-      await setDoc(doc(db, "users", user.uid), {
-        uid: user.uid,
-        username: username,
-        email: email,
-        createdAt: new Date(),
-        // DO NOT store the password here.
-      });
-
-      Alert.alert("Success", "Account created successfully! You are now logged in.");
-
-      // 3. Navigate to main app
-      // The AuthProvider in _layout.tsx will now detect the active user session 
-      // and handle the final redirect, but a direct replace is safe too.
-      router.replace('/(tabs)'); 
-
-    } catch (error: any) {
-      // Provide user-friendly feedback based on Firebase error codes
-      let message = error.message;
-
-      if (error.code === 'auth/email-already-in-use') {
-        message = "That email address is already in use.";
-      } else if (error.code === 'auth/invalid-email') {
-        message = "That email address is invalid.";
-      } else if (error.code === 'auth/weak-password') {
-        message = "Password should be at least 6 characters.";
+      let photoURL = "";
+      if (image) {
+        console.log("Step 2: Uploading Image...");
+        try {
+          const response = await fetch(image);
+          const blob = await response.blob();
+          const storageRef = ref(storage, `users/${user.uid}/profile.jpg`);
+          await uploadBytes(storageRef, blob);
+          photoURL = await getDownloadURL(storageRef);
+          console.log("✅ Image Uploaded:", photoURL);
+        } catch (imgErr) {
+          console.log("❌ Image Upload Failed (skipping):", imgErr);
+        }
       }
 
-      console.error("Firebase Auth Error:", error.code, message);
-      Alert.alert("Registration Failed", message);
+      // 2. Update Firebase Authentication profile
+      console.log("Step 3: Updating Auth Profile...");
+      await updateProfile(user, {
+        displayName: username,
+        photoURL: photoURL || null,
+      });
+      console.log("✅ Auth Profile Updated!");
+
+      // 3. Save to Firestore
+      console.log("Step 4: Saving to Firestore...");
+      await setDoc(doc(db, "users", user.uid), {
+        uid: user.uid,
+        username,
+        email,
+        phone,
+        address,
+        photoURL: photoURL || "",
+        memberSince: serverTimestamp(),
+      });
+      console.log("✅ Firestore Saved!");
+
+      setLoading(false);
+      Alert.alert("Success", "Account created!");
+      router.replace("/(auth)/login" as any);
+
+    } catch (error: any) {
+      setLoading(false);
+      console.error("🔥 FULL ERROR OBJECT:", error);
+      
+      // More specific error messages
+      if (error.code === 'auth/email-already-in-use') {
+        Alert.alert("Error", "Email is already in use. Please use a different email.");
+      } else if (error.code === 'auth/weak-password') {
+        Alert.alert("Error", "Password is too weak. Please use a stronger password.");
+      } else if (error.code === 'auth/invalid-email') {
+        Alert.alert("Error", "Invalid email address. Please check your email format.");
+      } else if (error.code === 'auth/network-request-failed') {
+        Alert.alert("Error", "Network error. Please check your internet connection.");
+      } else {
+        Alert.alert("Error", error.message || "Something went wrong. Please try again.");
+      }
     }
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={26} color="#333" />
-        </TouchableOpacity>
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === "ios" ? "padding" : "height"} 
+        style={{ flex: 1 }}
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={26} color="#333" />
+          </TouchableOpacity>
+          <Text style={styles.title}>Sign Up</Text>
+        </View>
 
-        <Text style={styles.title}>Sign Up</Text>
-      </View>
-
-      <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
-
-        {/* Username */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Username</Text>
-          <View style={styles.inputRow}>
-            <TextInput
-              style={styles.input}
-              onChangeText={setUsername}
-              value={username}
-              placeholder="Enter your username"
-              autoCapitalize="none"
-            />
-            {username.length >= 3 && (
-              <MaterialIcons name="done" size={20} color="#4CAF50" />
+        <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
+          <TouchableOpacity style={styles.profileContainer} onPress={pickImage}>
+            {image ? (
+              <Image source={{ uri: image }} style={styles.profileImage} />
+            ) : (
+              <View style={styles.placeholderCircle}>
+                 <MaterialIcons name="person" size={50} color="#AAA" />
+              </View>
             )}
-          </View>
-        </View>
+            <Text style={styles.profileText}>Tap to add profile picture</Text>
+          </TouchableOpacity>
 
-        {/* Email (Used for Auth) */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Email Address</Text>
-          <View style={styles.inputRow}>
-            <TextInput
-              style={styles.input}
-              onChangeText={setEmail}
-              value={email}
-              placeholder="Enter your email"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              textContentType='emailAddress'
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Username</Text>
+            <TextInput 
+              style={styles.input} 
+              placeholder="Enter username" 
+              value={username} 
+              onChangeText={setUsername} 
             />
-            {email.includes('@') && (
-              <MaterialIcons name="done" size={20} color="#4CAF50" />
-            )}
           </View>
-        </View>
 
-        {/* Password (Used for Auth) */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Password (Min 6 Characters)</Text>
-          <View style={styles.inputRow}>
-            <TextInput
-              style={styles.input}
-              onChangeText={setPassword}
-              value={password}
-              placeholder="Enter your password"
-              secureTextEntry
-              textContentType='password'
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Email</Text>
+            <TextInput 
+              style={styles.input} 
+              placeholder="Enter email" 
+              keyboardType="email-address" 
+              value={email} 
+              onChangeText={setEmail} 
+              autoCapitalize="none" 
             />
-            {password.length >= 6 && ( // Changed check to >= 6 for Firebase minimum
-              <Text style={styles.passwordStrength}>Strong</Text>
-            )}
           </View>
-        </View>
 
-        {/* Remember Me */}
-        <View style={styles.switchContainer}>
-          <Text style={styles.rememberMeText}>Remember me</Text>
-          <Switch
-            trackColor={{ false: "#E0E0E0", true: "#6A1B9A" }}
-            thumbColor={rememberMe ? "#8E24AA" : "#F4F4F4"}
-            onValueChange={setRememberMe}
-            value={rememberMe}
-          />
-        </View>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Phone Number</Text>
+            <TextInput 
+              style={styles.input} 
+              placeholder="Enter phone number" 
+              keyboardType="phone-pad" 
+              value={phone} 
+              onChangeText={setPhone} 
+            />
+          </View>
 
-      </ScrollView>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Address</Text>
+            <TextInput 
+              style={styles.input} 
+              placeholder="Enter address" 
+              value={address} 
+              onChangeText={setAddress} 
+              multiline 
+            />
+          </View>
 
-      {/* Sign Up Button */}
-      <View style={styles.bottomButtonContainer}>
-        <TouchableOpacity
-          style={styles.signUpButton}
-          onPress={handleSignUp}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.buttonText}>Sign Up</Text>
-        </TouchableOpacity>
-      </View>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Password</Text>
+            <TextInput 
+              style={styles.input} 
+              placeholder="Enter password" 
+              secureTextEntry 
+              value={password} 
+              onChangeText={setPassword} 
+            />
+          </View>
 
+          <View style={styles.switchContainer}>
+            <Text style={styles.rememberMeText}>Remember me</Text>
+            <Switch 
+              value={rememberMe} 
+              onValueChange={setRememberMe} 
+              trackColor={{ false: "#E0E0E0", true: "#5C2D91" }} 
+            />
+          </View>
+
+          <TouchableOpacity 
+            style={[styles.signUpButton, loading && { opacity: 0.7 }]} 
+            onPress={handleSignUp} 
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="white" />
+            ) : (
+              <Text style={styles.buttonText}>Sign Up</Text>
+            )}
+          </TouchableOpacity>
+          
+          <View style={{ height: 40 }} />
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
 
-export default SignupScreen;
-
-
-// --- STYLES ---
-const PURPLE_PRIMARY = '#5C2D91';
-
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: 'white' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEE',
+  safeArea: { 
+    flex: 1, 
+    backgroundColor: "white" 
   },
-  backButton: { marginRight: 20 },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    textAlign: 'center',
+  header: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    paddingHorizontal: 15, 
+    paddingVertical: 15, 
+    borderBottomWidth: 1, 
+    borderBottomColor: "#EEE" 
   },
-  scrollContainer: {
-    paddingHorizontal: 25,
-    paddingTop: 30,
-    paddingBottom: 20,
+  backButton: { 
+    zIndex: 10 
   },
-  inputGroup: { marginBottom: 25 },
-  label: { fontSize: 14, color: '#666', marginBottom: 5, fontWeight: '500' },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#CCC',
-    paddingVertical: 8,
+  title: { 
+    fontSize: 20, 
+    fontWeight: "bold", 
+    color: "#333", 
+    flex: 1, 
+    textAlign: "center", 
+    marginRight: 26 
   },
-  input: { flex: 1, fontSize: 18, color: '#333', paddingVertical: 0 },
-  passwordStrength: { color: '#4CAF50', fontWeight: 'bold', fontSize: 14 },
-  switchContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 40,
+  scrollContainer: { 
+    paddingHorizontal: 25, 
+    paddingTop: 20 
   },
-  rememberMeText: { fontSize: 16, color: '#333' },
-  bottomButtonContainer: {
-    paddingHorizontal: 25,
-    paddingBottom: 20,
-    backgroundColor: 'white',
+  profileContainer: { 
+    alignItems: "center", 
+    marginBottom: 20 
   },
-  signUpButton: {
-    backgroundColor: PURPLE_PRIMARY,
-    paddingVertical: 18,
-    width: '100%',
-    borderRadius: 15,
-    alignItems: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
+  profileImage: { 
+    width: 100, 
+    height: 100, 
+    borderRadius: 50 
   },
-  buttonText: { color: 'white', fontSize: 18, fontWeight: 'bold' },
+  placeholderCircle: { 
+    width: 100, 
+    height: 100, 
+    borderRadius: 50, 
+    backgroundColor: '#F0F0F0', 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    marginBottom: 10 
+  },
+  profileText: { 
+    color: "#5C2D91", 
+    fontSize: 14, 
+    fontWeight: '500' 
+  },
+  inputGroup: { 
+    marginBottom: 20 
+  },
+  label: { 
+    fontSize: 14, 
+    color: "#666", 
+    marginBottom: 8 
+  },
+  input: { 
+    borderBottomWidth: 1, 
+    borderBottomColor: "#CCC", 
+    paddingVertical: 8, 
+    fontSize: 16, 
+    color: "#333" 
+  },
+  switchContainer: { 
+    flexDirection: "row", 
+    justifyContent: "space-between", 
+    alignItems: 'center', 
+    marginBottom: 30 
+  },
+  rememberMeText: { 
+    fontSize: 16, 
+    color: "#333" 
+  },
+  signUpButton: { 
+    backgroundColor: "#5C2D91", 
+    paddingVertical: 18, 
+    borderRadius: 12, 
+    alignItems: "center", 
+    elevation: 2, 
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: 2 }, 
+    shadowOpacity: 0.1, 
+    shadowRadius: 4 
+  },
+  buttonText: { 
+    color: "white", 
+    fontSize: 18, 
+    fontWeight: "bold" 
+  },
 });
+
+export default SignupScreen;

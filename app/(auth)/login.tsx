@@ -159,7 +159,7 @@ const styles = StyleSheet.create({
   inputGroup: { marginBottom: 25 },
   label: { fontSize: 14, color: '#666', marginBottom: 5, fontWeight: '500' },
   inputRow: { flexDirection: 'row', alignItems: 'flex-end', paddingVertical: 8 },
-  input: { flex: 1, fontSize: 16, color: '#333', paddingVertical: 0 }, 
+  input: { flex: 1, fontSize: 16, color: '#333', paddingVertical: 0 },
   forgotPasswordButton: { alignSelf: 'flex-end', marginTop: 5 },
   forgotPasswordText: { color: RED_ACCENT, fontSize: 14, fontWeight: '600' },
   switchContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, marginBottom: 20 },

@@ -1,88 +1,77 @@
-// HOTELAR/app/(tabs)/_layout.tsx (Tabs Layout Definition - The FINAL, CLEANED VERSION)
+import { Ionicons } from "@expo/vector-icons";
+import { Tabs } from "expo-router";
 
-import { MaterialIcons } from '@expo/vector-icons';
-import { Tabs } from 'expo-router';
-import React from 'react';
+const PURPLE_PRIMARY = "#5C2D91";
 
-// Define constants once
-const PURPLE_PRIMARY = '#5C2D91';
-const ICON_SIZE = 28;
-
-// Define the component with ONE default export
-export default function TabLayout() {
+export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
+        headerShown: false,
         tabBarActiveTintColor: PURPLE_PRIMARY,
-        tabBarInactiveTintColor: '#999',
+        tabBarInactiveTintColor: "gray",
         tabBarStyle: {
-          height: 60,
-          paddingBottom: 5,
+          backgroundColor: "#fff",
+          height: 65,
+          paddingBottom: 8,
           paddingTop: 5,
-          backgroundColor: 'white',
-          borderTopWidth: 1,
-          borderTopColor: '#EEE',
         },
-        headerShown: false, // Hide the header for all tab screens
       }}
     >
+      {/* 1. Home / Explore */}
       <Tabs.Screen
-        name="index"
+        name="home"
         options={{
-          title: 'Home',
+          title: "Home",
           tabBarIcon: ({ color }) => (
-            <MaterialIcons name="home" color={color} size={ICON_SIZE} />
+            <Ionicons name="home-outline" size={26} color={color} />
           ),
         }}
       />
+
+      {/* 2. My Bookings */}
       <Tabs.Screen
-        name="booking"
+        name="bookings"
         options={{
-          title: 'Bookings', // Changed title to plural to match image
+          title: "Bookings",
           tabBarIcon: ({ color }) => (
-            <MaterialIcons name="calendar-today" color={color} size={ICON_SIZE} />
+            <Ionicons name="calendar-outline" size={26} color={color} />
           ),
         }}
       />
+
+      {/* 3. Bill / Payments */}
       <Tabs.Screen
         name="bill"
         options={{
-          title: 'Bill',
+          title: "Bill",
           tabBarIcon: ({ color }) => (
-            <MaterialIcons name="receipt" color={color} size={ICON_SIZE} />
+            <Ionicons name="receipt-outline" size={26} color={color} />
           ),
         }}
       />
+
+      {/* 4. Profile */}
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profile',
+          title: "Profile",
           tabBarIcon: ({ color }) => (
-            <MaterialIcons name="person" color={color} size={ICON_SIZE} />
+            <Ionicons name="person-circle-outline" size={26} color={color} />
           ),
         }}
       />
+
+      {/* 5. Settings */}
       <Tabs.Screen
         name="settings"
         options={{
-          title: 'Settings',
+          title: "Settings",
           tabBarIcon: ({ color }) => (
-            <MaterialIcons name="settings" color={color} size={ICON_SIZE} />
+            <Ionicons name="settings-outline" size={26} color={color} />
           ),
         }}
       />
-      {/* Note: The 'explore' tab was removed as it wasn't shown in your final tab bar design.
-        If you want it back, uncomment the following:
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => (
-            <MaterialIcons name="travel-explore" color={color} size={ICON_SIZE} />
-          ),
-        }}
-      /> 
-      */}
     </Tabs>
   );
 }
